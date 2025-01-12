@@ -1,0 +1,41 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\jonathanporan\\Documents\\MTA\\Computer Networks\\T3\\TCP\\TCPclient\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{BE243C3F-9359-4BE0-9650-A79998EDFCB1}|TCPclient\\TCPclient.vcxproj|C:\\Users\\jonathanporan\\Documents\\MTA\\Computer Networks\\T3\\TCP\\TCPclient\\TCPclient\\ClientProgram.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{BE243C3F-9359-4BE0-9650-A79998EDFCB1}|TCPclient\\TCPclient.vcxproj|solutionrelative:TCPclient\\ClientProgram.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 1,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{6324226f-61b6-4f28-92ee-18d4b5fe1e48}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "ClientProgram.cpp",
+              "DocumentMoniker": "C:\\Users\\jonathanporan\\Documents\\MTA\\Computer Networks\\T3\\TCP\\TCPclient\\TCPclient\\ClientProgram.cpp",
+              "RelativeDocumentMoniker": "TCPclient\\ClientProgram.cpp",
+              "ToolTip": "C:\\Users\\jonathanporan\\Documents\\MTA\\Computer Networks\\T3\\TCP\\TCPclient\\TCPclient\\ClientProgram.cpp",
+              "RelativeToolTip": "TCPclient\\ClientProgram.cpp",
+              "ViewState": "AgIAAAoAAAAAMzMzM/MmwJIAAAABAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2025-01-12T12:10:35.841Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
