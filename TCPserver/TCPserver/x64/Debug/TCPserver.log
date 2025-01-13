@@ -1,0 +1,4 @@
+﻿  ServerProgram.cpp
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(39,6): warning C4326: return type of 'main' should be 'int' instead of 'void'
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(189,36): error C4996: 'inet_ntoa': Use inet_ntop() or InetNtop() instead or define _WINSOCK_DEPRECATED_NO_WARNINGS to disable deprecated API warnings
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(289,3): error C4996: 'itoa': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _itoa. See online help for details.
