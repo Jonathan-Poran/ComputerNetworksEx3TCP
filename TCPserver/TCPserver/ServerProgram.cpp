@@ -1,12 +1,23 @@
 #define _CRT_SECURE_NO_WARNINGS
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <iostream>
 #pragma comment(lib, "Ws2_32.lib")
 #include <winsock2.h>
 #include <string>
 #include <sstream>
 #include <ctime>
+#include <fstream>
+#include <list>
 using namespace std;
 
+const int BUFFER_SIZE = 1024;
+const int TIME_PORT = 27015;
+const int MAX_SOCKETS = 60;
+const int EMPTY = 0; //free socket
+const int LISTEN = 1; //the socket how handel new clients
+const int RECEIVE = 2; //a client sand message to this socket
+const int IDLE = 3; //in the send at sockectState
+const int SEND = 4; //the socket how need to send message
 
 struct responseMessage
 {
@@ -25,33 +36,13 @@ struct SocketState
 	SOCKET id;			// Socket handle
 	int	recv;			// Receiving?
 	int	send;			// Sending?
-	int sendSubType;	// Sending sub-type
+	string sendSubType;	// Sending sub-type
 	char buffer[BUFFER_SIZE];
 	int len;
-	clock_t responseTime;
-	clock_t currentTime;
-	responseMessage response;
-	char* responseCharArray;
+	clock_t lastByteRecvTime;
+	list<responseMessage*> Responses;
+	int LastByteSentResponse = 0;
 };
-const int BUFFER_SIZE = 1024;
-const int TIME_PORT = 27015;
-const int MAX_SOCKETS = 60;
-const int EMPTY = 0; //free socket
-const int LISTEN = 1; //the socket how handel new clients
-const int RECEIVE = 2; //a client sand message to this socket
-const int IDLE = 3; //in the send at sockectState
-const int SEND = 4; //the socket how need to send message
-//option to send:
-const int SEND_TIME = 1;
-const int SEND_SECONDS = 2;
-//HTTP methods
-const int OPTIONS = 1;
-const int GET = 2;
-const int HEAD = 3;
-const int POST = 4;
-const int PUT = 5;
-const int DEL = 6;
-const int TRACE = 7;
 
 //methods:
 bool addSocket(SOCKET id, int what);
@@ -59,17 +50,29 @@ void removeSocket(int index);
 void acceptConnection(int index);
 void receiveMessage(int index);
 void sendMessage(int index);
-char* ResponseToCharArray(responseMessage* response, bool isHead);
-void RemoveCharsFromArray(char*& responseToSend, int numOfChars);
 void RemoveCharsFromSocketBuff(int index, int numOfChars);
+string GetCurrentTimeString();
+void SetBadBodyRequestResponse(responseMessage* response);
+char* ResponseToCharArray(responseMessage* response);
 void HandleRequest(int index, const string& request, const string& timeStr);
+string ParseMethodFromRequest(string request);
+bool ParseRequest(const string& request, string& method, string& path, string& queryString, string& version, string& contentLength, string& lang);
+bool ParseFirstLine(const string& request, string& method, string& path, string& queryString, string& version);
+bool ExtractContentLength(const string& request, string& contentLength);
+void ExtractLangFromQueryString(const string& queryString, string& lang);
 
-void OptionsRequest(int index, string time);
-void GetOrHeadRequest(int index, const string& request, string timeStr, bool isGet);
-void PostRequest(int index, string timeStr);
-void PutRequest(int index, string timeStr);
-void DeleteRequest(int index, string timeStr);
-void TraceRequest(int index, string timeStr);
+void OptionsRequest(int index, string timeStr, responseMessage* response);
+void GetOrHeadRequest(int index, const string& request, string timeStr, responseMessage* response);
+void PostOrPutRequest(int index, const string& request, string timeStr, responseMessage* response);
+void DeleteRequest(int index, const string& request, string timeStr, responseMessage* response);
+void TraceRequest(int index, const string& request, string timeStr, responseMessage* response);
+
+string GetFullPath(const string& path);
+bool GetContentLength(string request, string& contentLen);
+bool HandelGetOrHaedRequest(const string& method, string& path, string& lang, responseMessage* response);
+bool ReadFromFile(const string& method, const string& path, responseMessage* response);
+void WirteToFile(const string& path, const string& request, const string& method, responseMessage* response, string contentLen);
+void RelaseList(list<responseMessage*>& Responses);
 
 //Data base:
 struct SocketState sockets[MAX_SOCKETS] = { 0 };
@@ -82,7 +85,7 @@ void main()
 	WSAData wsaData;
 	if (NO_ERROR != WSAStartup(MAKEWORD(2, 2), &wsaData))
 	{
-		cout << "Time Server: Error at WSAStartup()\n";
+		cout << "\nTime Server: Error at WSAStartup()\n";
 		return;
 	}
 
@@ -90,7 +93,7 @@ void main()
 	SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (INVALID_SOCKET == listenSocket)
 	{
-		cout << "Time Server: Error at socket(): " << WSAGetLastError() << endl;
+		cout << "\nTime Server: Error at socket(): " << WSAGetLastError() << endl;
 		WSACleanup();
 		return;
 	}
@@ -102,7 +105,7 @@ void main()
 	// Bind the socket for client's requests.
 	if (SOCKET_ERROR == bind(listenSocket, (SOCKADDR*)&serverService, sizeof(serverService)))
 	{
-		cout << "Time Server: Error at bind(): " << WSAGetLastError() << endl;
+		cout << "\nTime Server: Error at bind(): " << WSAGetLastError() << endl;
 		closesocket(listenSocket);
 		WSACleanup();
 		return;
@@ -111,7 +114,7 @@ void main()
 	// Listen on the Socket for incoming connections.
 	if (SOCKET_ERROR == listen(listenSocket, 5))
 	{
-		cout << "Time Server: Error at listen(): " << WSAGetLastError() << endl;
+		cout << "\nTime Server: Error at listen(): " << WSAGetLastError() << endl;
 		closesocket(listenSocket);
 		WSACleanup();
 		return;
@@ -123,6 +126,21 @@ void main()
 	bool serverIsRunning = true;
 	while (serverIsRunning)
 	{
+		// Check for timeouts
+		for (int i = 1; i < MAX_SOCKETS; i++)
+		{
+			if (sockets[i].recv != EMPTY)
+			{
+				time_t currentTime = time(nullptr);
+				if (currentTime - sockets[i].lastByteRecvTime > 120)
+				{
+					cout << "\nClosing socket " << i << " due to timeout.\n";
+					closesocket(sockets[i].id);
+					removeSocket(i);
+				}
+			}
+		}
+
 		fd_set waitRecv;
 		FD_ZERO(&waitRecv);
 		for (int i = 0; i < MAX_SOCKETS; i++)
@@ -146,7 +164,7 @@ void main()
 		nfd = select(0, &waitRecv, &waitSend, NULL, NULL);
 		if (nfd == SOCKET_ERROR)
 		{
-			cout << "Time Server: Error at select(): " << WSAGetLastError() << endl;
+			cout << "\nTime Server: Error at select(): " << WSAGetLastError() << endl;
 			WSACleanup();
 			return;
 		}
@@ -175,13 +193,17 @@ void main()
 			{
 				nfd--;
 				if (sockets[i].send == SEND)
+				{
 					sendMessage(i);
+				}
 			}
 		}
 	}
 
 	// Closing connections and Winsock.
-	cout << "Time Server: Closing Connection.\n";
+
+	cout << "\n\nTime Server: Closing Connection.\n";
+	cout << "Time Server: the server was up for " << (time(nullptr) - sockets[0].lastByteRecvTime) / 60 << "sec\n";
 	closesocket(listenSocket);
 	WSACleanup();
 }
@@ -191,7 +213,7 @@ bool addSocket(SOCKET id, int what)
 	unsigned long flag = 1;
 	if (ioctlsocket(id, FIONBIO, &flag) != 0)
 	{
-		cout << "Time Server: Error at ioctlsocket(): " << WSAGetLastError() << endl;
+		cout << "\nTime Server: Error at ioctlsocket(): " << WSAGetLastError() << endl;
 	}
 
 	for (int i = 0; i < MAX_SOCKETS; i++)
@@ -202,6 +224,8 @@ bool addSocket(SOCKET id, int what)
 			sockets[i].recv = what;
 			sockets[i].send = IDLE;
 			sockets[i].len = 0;
+			sockets[i].lastByteRecvTime = time(nullptr);
+
 			socketsCount++;
 			return (true);
 		}
@@ -213,8 +237,7 @@ void removeSocket(int index)
 {
 	sockets[index].recv = EMPTY;
 	sockets[index].send = EMPTY;
-	delete sockets[index].responseCharArray;
-	sockets[index].responseCharArray = nullptr;
+	RelaseList(sockets[index].Responses);
 	socketsCount--;
 }
 
@@ -227,10 +250,10 @@ void acceptConnection(int index)
 	SOCKET msgSocket = accept(id, (struct sockaddr*)&from, &fromLen);
 	if (INVALID_SOCKET == msgSocket)
 	{
-		cout << "Time Server: Error at accept(): " << WSAGetLastError() << endl;
+		cout << "\nTime Server: Error at accept(): " << WSAGetLastError() << endl;
 		return;
 	}
-	cout << "Time Server: Client " << inet_ntoa(from.sin_addr) << ":" << ntohs(from.sin_port) << " is connected." << endl;
+	cout << "\nTime Server: Client " << inet_ntoa(from.sin_addr) << ":" << ntohs(from.sin_port) << " is connected." << endl;
 
 	if (addSocket(msgSocket, RECEIVE) == false)
 	{
@@ -242,13 +265,16 @@ void acceptConnection(int index)
 
 void receiveMessage(int index)
 {
+	sockets[index].lastByteRecvTime = time(nullptr);
+	string timeStr = GetCurrentTimeString();
+
 	SOCKET msgSocket = sockets[index].id;
 	int len = sockets[index].len;
 	int bytesRecv = recv(msgSocket, &sockets[index].buffer[len], sizeof(sockets[index].buffer) - len, 0);
 
 	if (SOCKET_ERROR == bytesRecv)
 	{
-		cout << "Time Server: Error at recv(): " << WSAGetLastError() << endl;
+		cout << "\nTime Server: Error at recv(): " << WSAGetLastError() << endl;
 		closesocket(msgSocket);
 		removeSocket(index);
 		return;
@@ -261,113 +287,107 @@ void receiveMessage(int index)
 	}
 	else
 	{
-		sockets[index].buffer[len + bytesRecv] = '\0';
+		sockets[index].buffer[len + bytesRecv + 1] = '\0';
 		sockets[index].len += bytesRecv;
 
-		cout << "Time Server: Received: " << bytesRecv << " bytes of the message - "
-			<< &sockets[index].buffer[len] << endl;
+		//cout << "Time Server: Received: \n" << bytesRecv << " bytes of the message :\n "
+		//	<< &sockets[index].buffer[len] << endl;
 
 		string request(sockets[index].buffer);
-		size_t endOfFirstRequest = request.find("\r\n\r\n", 0);
-		if (endOfFirstRequest == string::npos)
-		{
-			return;
-		}
 
-		string timeStr = getCurrentTimeString();
-		//todo check if from the last byte pass 2 min => close socket
-		request = request.substr(0, endOfFirstRequest);
-
+		cout <<"\n#VVVVVVV# RECV #VVVVVVV#\n\n" << request << "\n#^^^^^^^# RECV #^^^^^^^#\n";
 		HandleRequest(index, request, timeStr);
+
+		RemoveCharsFromSocketBuff(index, request.size());
 	}
 }
 
 void sendMessage(int index)
 {
 	SOCKET msgSocket = sockets[index].id;
-	bool isHead = (sockets[index].sendSubType == HEAD);
+	list<responseMessage*>& responses = sockets[index].Responses;
 
-	char* responseToSend = sockets[index].responseCharArray;
-	int bytesSent = 0;
-	int partsOfMessage = 0;
+	int bytesSent = sockets[index].LastByteSentResponse;
+	int countResponsesSent = 1;
 
-	if (sockets[index].responseCharArray == nullptr)
+	while (!responses.empty() && countResponsesSent < 10)
 	{
-		responseToSend = ResponseToCharArray(&(sockets[index].response), isHead);
-	}
+		responseMessage* responseToSend = responses.front();
+		char* responseStr = ResponseToCharArray(responseToSend);
+		int totalLen = strlen(responseStr);
+		cout << "\n#VVVVVVV# SEND #VVVVVVV#\n\n" << responseStr << "\n#^^^^^^^# SEND #^^^^^^^#\n";
 
-	int totalLen = strlen(responseToSend);
-	
-
-	while (bytesSent < totalLen)
-	{
-		int result = send(msgSocket, responseToSend + bytesSent, totalLen - bytesSent, 0);
-		if (result == SOCKET_ERROR)
+		while (bytesSent < totalLen)
 		{
-			if (WSAGetLastError() == WSAEWOULDBLOCK)
+			int result = send(msgSocket, responseStr + bytesSent, totalLen - bytesSent, 0);
+			
+			if (result == SOCKET_ERROR)
 			{
-				// Socket is not ready to send
-				return;
+				if (WSAGetLastError() == WSAEWOULDBLOCK)
+				{
+					sockets[index].LastByteSentResponse = bytesSent;
+					delete[] responseStr;
+					return;
+				}
+				else
+				{
+					cerr << "Server: Error at send(): " << WSAGetLastError() << endl;
+					closesocket(msgSocket);
+					removeSocket(index);
+					delete[] responseStr;
+					return;
+				}
 			}
-			else
-			{
-				cout << "Server: Error at send(): " << WSAGetLastError() << endl;
-				closesocket(msgSocket);
-				removeSocket(index);
-				return;
-			}
+			bytesSent += result;
+			cout << "\nTime Server: Sent " << result << " of " << totalLen << " bytes of responses no " << countResponsesSent << "\n";
 		}
-		partsOfMessage++;
-		bytesSent += result;
-		cout << "Time Server: Sent: " << result << " of " << totalLen << " bytes message.\n";
+
+		if (bytesSent == totalLen) //sent one response
+		{
+			bytesSent = 0;
+			sockets[index].LastByteSentResponse = 0;
+			delete[] responseStr;
+			delete responseToSend;
+			sockets[index].Responses.pop_front();
+			cout << "\nTime Server: Sent "<< countResponsesSent << " responses for socket index "<< index << endl;
+			countResponsesSent++;
+
+			//shutdown(msgSocket, SD_SEND); // Signal no more data will be sent
+			//closesocket(msgSocket); // Close the socket completely
+			//removeSocket(index);
+		}
 	}
 
-	if (bytesSent == totalLen)
-	{
+	if(responses.empty())
 		sockets[index].send = IDLE;
-		cout << "Time Server: Sent: " << partsOfMessage << " for message in socker number " << index << endl;
-	}
-	else
-	{
-		cout << "Time Server: Sent: " << partsOfMessage << " for message in socker number " << index;
-		cout << " and remain " << totalLen-bytesSent << " bytes to sent\n";
-
-		RemoveCharsFromArray(responseToSend, bytesSent);
-	}
 }
 
-string getCurrentTimeString()
+string GetCurrentTimeString()
 {
 	time_t timeOfNow;
 	time(&timeOfNow);
 	string timeStr = ctime(&timeOfNow);
-	timeStr.pop_back(); // ???? ???? ?????
+	timeStr.pop_back();
+
 	return timeStr;
+}
+
+void SetBadBodyRequestResponse(responseMessage* response)
+{
+	response->statusCode = "400 Bad Request";
+	response->responseData = "Bad Body Request";
+	response->contentLength = to_string(response->responseData.length());
+	response->contentType = "Content-Type: text/html";
+	response->connection = "Connection: close";
 }
 
 void RemoveCharsFromSocketBuff(int index, int numOfChars)
 {
-	memcpy(sockets[index].buffer, &sockets[index].buffer[numOfChars], sockets[index].len - numOfChars);
+	memcpy(sockets[index].buffer, &sockets[index].buffer[numOfChars], sockets[index].len);
 	sockets[index].len -= numOfChars;
 }
 
-void RemoveCharsFromArray(char*& responseToSend, int numOfChars)
-{
-	if (responseToSend == nullptr)
-		return;
-
-	int length = strlen(responseToSend);
-	if (numOfChars >= length)
-	{
-		delete[] responseToSend;
-		responseToSend = nullptr; 
-		return;
-	}
-
-	memmove(responseToSend, responseToSend + numOfChars, length - numOfChars + 1);
-}
-
-char* ResponseToCharArray(responseMessage* response, bool isHead)
+char* ResponseToCharArray(responseMessage* response)
 {
 	ostringstream responseStream;
 	responseStream << response->httpVersion << " "
@@ -375,10 +395,10 @@ char* ResponseToCharArray(responseMessage* response, bool isHead)
 		<< response->date << "\r\n"
 		<< response->serverName << "\r\n"
 		<< response->contentType << "\r\n"
-		<< "Content-Length: " << response->responseData.size() << "\r\n"
+		<< response->contentLength << "\r\n"
 		<< response->connection << "\r\n\r\n";
 
-	if (isHead && !response->responseData.empty())
+	if (!response->responseData.empty())
 		responseStream << response->responseData;
 
 	string responseStr = responseStream.str();
@@ -390,49 +410,38 @@ char* ResponseToCharArray(responseMessage* response, bool isHead)
 
 void HandleRequest(int index, const string& request, const string& timeStr)
 {	
-	string method = GeMethodFromRequest(request);
-	
+	string method = ParseMethodFromRequest(request);
+	responseMessage* response = new responseMessage();
+
 	if (method == "OPTIONS")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = OPTIONS;
-		OptionsRequest(index, timeStr);
+		sockets[index].sendSubType = method;
+		OptionsRequest(index, timeStr, response);
 	}
-	else if (method == "GET")
+	else if (method == "GET" || method == "HEAD")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = GET;
-		GetOrHeadRequest(index, timeStr, request, true);
+		sockets[index].sendSubType = method;
+		GetOrHeadRequest(index, request, timeStr, response);
 	}
-	else if (method == "HEAD")
+	else if (method == "POST" || method == "PUT")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = HEAD;
-		// GetOrHeadRequest(index, timeStr, false);
-	}
-	else if (method == "POST")
-	{
-		sockets[index].send = SEND;
-		sockets[index].sendSubType = POST;
-		// PostRequest(index, timeStr);
-	}
-	else if (method == "PUT")
-	{
-		sockets[index].send = SEND;
-		sockets[index].sendSubType = PUT;
-		// PutRequest(index, timeStr);
+		sockets[index].sendSubType = method;
+		PostOrPutRequest(index, request, timeStr, response);
 	}
 	else if (method == "DELETE")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = DEL;
-		// DeleteRequest(index, timeStr);
+		sockets[index].sendSubType = method;
+		DeleteRequest(index, request, timeStr, response);
 	}
 	else if (method == "TRACE")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = TRACE;
-		// TraceRequest(index, timeStr);
+		sockets[index].sendSubType = method;
+		TraceRequest(index, request, timeStr, response);
 	}
 	else if (method == "Exit")
 	{
@@ -442,68 +451,13 @@ void HandleRequest(int index, const string& request, const string& timeStr)
 	}
 	else
 	{
-		cout << "Time Server: Unknown request type: " << method << endl;
+		cout << "\nTime Server: Unknown request type: " << method << endl;
 	}
+
+	sockets[index].Responses.push_back(response);
 }
 
-void ParseRequest(string request, string& path, string& version, string& host, string& contentType, string& contentLength)
-{
-	size_t endOfRequest = request.find("\r\n\r\n", 0);
-	string headers = request.substr(0, endOfRequest);
-
-	size_t firstLineEnd = headers.find("\r\n");
-	string firstLine = headers.substr(0, firstLineEnd);
-
-	size_t methodEnd = firstLine.find(" ");
-	size_t pathEnd = firstLine.find(" ", methodEnd + 1);
-
-	path = firstLine.substr(methodEnd + 1, pathEnd - methodEnd - 1);
-	version = firstLine.substr(pathEnd + 1);
-
-	// ?? ?? ???? Host, ???? ?????? ????? ?? ????? ?-HTTP/1.1
-	size_t hostStart = headers.find("Host: ");
-	if (hostStart != string::npos)
-	{
-		hostStart += 6; // ???? "Host: "
-		size_t hostEnd = headers.find("\r\n", hostStart);
-		host = headers.substr(hostStart, hostEnd - hostStart);
-	}
-	else
-	{
-		// Host ??? ????? ???? ?-HTTP/1.1
-		throw runtime_error("400 Bad Request: Missing Host header");
-	}
-
-	// ?? ?? ???? Content-Type, ???? ????? ?? ????? ?????
-	size_t contentTypeStart = headers.find("Content-Type: ");
-	if (contentTypeStart != string::npos)
-	{
-		contentTypeStart += 14; // ???? "Content-Type: "
-		size_t contentTypeEnd = headers.find("\r\n", contentTypeStart);
-		contentType = headers.substr(contentTypeStart, contentTypeEnd - contentTypeStart);
-	}
-	else
-	{
-		contentType = "text/plain"; // ????? ???? ?? ?? ????
-	}
-
-	// ?? ?? ???? Content-Length, ?? ???? ????? ??????
-	size_t contentLengthStart = headers.find("Content-Length: ");
-	if (contentLengthStart != string::npos)
-	{
-		contentLengthStart += 15; // ???? "Content-Length: "
-		size_t contentLengthEnd = headers.find("\r\n", contentLengthStart);
-		contentLength = headers.substr(contentLengthStart, contentLengthEnd - contentLengthStart);
-	}
-	else
-	{
-		contentLength = "0"; // ?? ?? ????, ?? ???? ?????. ???? ????? ???? ??? ?????
-	}
-}
-
-
-
-string GeMethodFromRequest(string request)
+string ParseMethodFromRequest(string request)
 {
 	size_t methodEnd = request.find(' ');
 	if (methodEnd != string::npos)
@@ -513,62 +467,189 @@ string GeMethodFromRequest(string request)
 	return "";
 }
 
-void OptionsRequest(int index, string timeStr)
+bool ParseRequest(const string& request, string& method, string& path, string& queryString, string& version, string& contentLength, string& lang)
 {
-	RemoveCharsFromSocketBuff(index, 8); //remove options(7) + " "(1) 
-	responseMessage* response = &sockets[index].response;
+	if (!ParseFirstLine(request, method, path, queryString, version))
+		return false; // Bad request in the first line
 
-	response->date = "Date: " + timeStr;
-	response->responseData = "Allow: OPTIONS, GET, HEAD, POST, PUT, DELETE, TRACE";
-	response->contentType = "Content-Type: text/html";
-	response->contentLength = "Content-Length: " + to_string(response->responseData.size());
+	if (!ExtractContentLength(request, contentLength))
+		return false; // Bad request in content length
+
+	ExtractLangFromQueryString(queryString, lang);
+
+	return true;
 }
 
-void GetOrHeadRequest(int index, const string& request, string timeStr, bool isGet)
+bool ParseFirstLine(const string& request, string& method, string& path, string& queryString, string& version)
 {
-	//
-}
+	size_t firstLineEnd = request.find("\r\n");
+	if (firstLineEnd == string::npos) return false; // Bad request
 
-void PostRequest(int index, string timeStr)
-{
-	char* bufferSocket = sockets[index].buffer;
-	string path;
-	string version;
-	string contentLen;
+	string firstLine = request.substr(0, firstLineEnd);
 
-	string request(bufferSocket);
-	size_t endOfRequest = request.find("\r\n\r\n", 0);
-	request = request.substr(0, endOfRequest);
-	responseMessage* response = &sockets[index].response;
+	size_t methodEnd = firstLine.find(" ");
+	if (methodEnd == string::npos) return false; // Bad request
+	method = firstLine.substr(0, methodEnd);
 
-	if (endOfRequest != string::npos)
+	size_t pathEnd = firstLine.find(" ", methodEnd + 1);
+	if (pathEnd == string::npos) return false; // Bad request
+	string fullPath = firstLine.substr(methodEnd + 1, pathEnd - methodEnd - 1);
+
+	size_t queryStart = fullPath.find("?");
+	if (queryStart != string::npos)
 	{
-		if (GetContentLength(request, contentLen) && )
-		{
-			int contentLength = stoi(contentLen);
+		path = fullPath.substr(0, queryStart);
+		queryString = fullPath.substr(queryStart + 1);
+	}
+	else
+	{
+		path = fullPath;
+		queryString.clear();
+	}
 
-		}
-		else
+	version = firstLine.substr(pathEnd + 1);
+
+	return true; 
+}
+
+bool ExtractContentLength(const string& request, string& contentLength)
+{
+	size_t contentLengthStart = request.find("Content-Length: ");
+	if (contentLengthStart != string::npos)
+	{
+		contentLengthStart += 16;
+		size_t contentLengthEnd = request.find("\r\n", contentLengthStart);
+
+		contentLength = request.substr(contentLengthStart, contentLengthEnd - contentLengthStart);
+		try
 		{
-			response->statusCode = "400 Bad Request";
-			response->contentLength = "Content-Length: 0";
+			int length = stoi(contentLength);
+			if (length < 0) 
+				return false; // Content-Length is negative
 		}
+		catch (const std::exception&)
+		{
+			return false; // Content-Length is not a number
+		}
+	}
+	else
+	{
+		contentLength.empty();
+	}
+
+	return true;
+}
+
+void ExtractLangFromQueryString(const string& queryString, string& lang)
+{
+	size_t langStart = queryString.find("lang=");
+	if (langStart != string::npos)
+	{
+		langStart += 5;
+		size_t langEnd = queryString.find("&", langStart);
+		if (langEnd == string::npos) langEnd = queryString.size();
+		lang = queryString.substr(langStart, langEnd - langStart);
+
+		// Validate lang
+		if (lang != "en" && lang != "he" && lang != "fr")
+		{
+			lang.clear(); //Invalid language
+		}
+	}
+	else
+	{
+		lang.clear(); //No language
 	}
 }
 
-void PutRequest(int index, string timeStr)
-{
 
+void OptionsRequest(int index, string timeStr, responseMessage* response)
+{
+	response->date = "Date: " + timeStr;
+	response->responseData = "Allow: OPTIONS, GET, HEAD, POST, PUT, DELETE, TRACE";
+	response->contentLength = "Content-Length: " + to_string(response->responseData.size());
 }
 
-void DeleteRequest(int index, string timeStr)
+void GetOrHeadRequest(int index, const string& request, string timeStr, responseMessage* response)
 {
+	string method, path, queryString, version, contentLen, lang;
 
+	if (!ParseRequest(request, method, path, queryString, version, contentLen, lang))
+	{
+		SetBadBodyRequestResponse(response);
+		return;
+	}
+
+	if (!HandelGetOrHaedRequest(method, path, lang, response))
+	{
+		response->statusCode = "404 Not Found";
+		response->responseData = "File not found";
+		response->contentLength = "Content-Length: " + to_string(response->responseData.length());
+		response->connection = "Connection: close";
+	}
 }
 
-void TraceRequest(int index, string timeStr)
+void PostOrPutRequest(int index, const string& request, string timeStr, responseMessage* response)
 {
+	string method, path, queryString, version, contentLen, lang;
 
+	if (!ParseRequest(request, method, path, queryString, version, contentLen, lang))
+	{
+		SetBadBodyRequestResponse(response);
+		return;
+	}
+
+	WirteToFile(path, request, method, response, contentLen);
+}
+
+void DeleteRequest(int index, const string& request, string timeStr, responseMessage* response)
+{
+	string method, path, queryString, version, contentLen, lang;
+
+	if (!ParseRequest(request, method, path, queryString, version, contentLen, lang))
+	{
+		SetBadBodyRequestResponse(response);
+		return;
+	}
+
+	string fileName = GetFullPath(path);
+
+	if (remove(fileName.c_str()) == 0)
+	{
+		response->statusCode = "204 No Content";
+		response->contentLength = "Content-Length: 0";
+	}
+	else
+	{
+		response->statusCode = "404 Not Found";
+		response->responseData = "File not found: " + path;
+		response->contentType = "Content-Type: text/plain";
+		response->contentLength = "Content-Length: " + to_string(response->responseData.size());
+	}
+}
+
+void TraceRequest(int index, const string& request, string timeStr, responseMessage* response)
+{
+	response->responseData = request;
+	response->contentType = "Content-Type: message/http";
+	response->contentLength = "Content-Length: " + to_string(response->responseData.size());
+}
+
+
+string GetFullPath(const string& path)
+{
+	string fileName;
+
+	if (!path.empty() && path[0] == '/')
+	{
+		fileName = "C:/Temp" + path;
+	}
+	else
+	{
+		fileName = "C:/Temp/" + path;
+	}
+
+	return fileName;
 }
 
 bool GetContentLength(string request , string& contentLen)
@@ -604,50 +685,136 @@ bool GetContentLength(string request , string& contentLen)
 	return true;
 }
 
-bool GetPath(string request, string& path)
+bool HandelGetOrHaedRequest(const string& method, string& path, string& lang, responseMessage* response)
 {
-	size_t methodEnd = request.find(' ');
-	if (methodEnd != string::npos)
+	
+	if (path == "/TimeString")
 	{
-		size_t pathStart = methodEnd + 1;
-		size_t pathEnd = request.find(' ', pathStart);
+		time_t timer;
+		time(&timer);
 
-		if (pathEnd != string::npos)
+		string currentTime = ctime(&timer);
+		currentTime.erase(currentTime.length() - 1); // Remove the newline character
+		if (method == "GET")
+			response->responseData = currentTime;
+		response->contentLength = "Content-Length: " + std::to_string(currentTime.length());
+		return true;
+	}
+	else if (path == "/SecondsSince1970")
+	{
+		time_t timer;
+		time(&timer);
+
+		string secondsSince1970 = to_string((int)timer);
+		if (method == "GET")
+			response->responseData = secondsSince1970;
+		response->contentLength = "Content-Length: " + std::to_string(secondsSince1970.length());
+		return true;
+	}
+	else if (path == "/")
+	{
+		if (lang == "he")
+			path = "/myfile-he.html";
+		else if (lang == "en")
+			path = "/myfile-en.html";
+		else if (lang == "fr")
+			path = "myfile-fr.html";
+	}
+	
+	
+	return ReadFromFile(method, path, response);
+}
+
+bool ReadFromFile(const string& method, const string& path, responseMessage* response)
+{
+	string fileName = GetFullPath(path);
+	ifstream file(fileName, ios::binary);
+	if (!file.is_open())
+	{
+		return false; // File not found
+	}
+
+	stringstream buffer;
+	buffer << file.rdbuf();
+	file.close();
+
+	response->contentLength = "Content-Length: " + to_string(buffer.str().length());
+	if(method == "GET")
+		response->responseData = buffer.str();
+
+	return true;
+}
+
+void WirteToFile(const string& path, const string& request, const string& method, responseMessage* response, string contentLen)
+{
+	string fileName = GetFullPath(path);
+	FILE* file;
+
+	if (method == "POST")
+	{
+		file = fopen(fileName.c_str(), "a");
+	}
+	else// is PUT
+	{
+		file = fopen(fileName.c_str(), "wb");
+	}
+	
+	if (!file)
+	{
+		if (method == "POST")
 		{
-			path = request.substr(pathStart, pathEnd - pathStart); // ???? ?? ?-path (???? ?????)
-			return true;
+			response->statusCode = "404 Not Found";
+			response->responseData = "File not found";
 		}
+		else
+		{
+			response->statusCode = "500 Internal Server Error";
+			response->responseData = "Failed to open file";
+		}
+		response->contentLength = "Content-Length: " + to_string(response->responseData.length());
+		response->connection = "Connection: close";
+
+		return;
 	}
-	return false; // ?? ?? ?????? ????? ?? ?-path
+
+	size_t startBody = request.find("\r\n\r\n", 0);//will always succeed because ParseRequest passed
+	startBody += 4;
+
+	size_t endBody = request.size() - startBody;
+	string body = request.substr(startBody, endBody - startBody);
+
+	if (!contentLen.empty() && stoi(contentLen) != body.size())
+	{
+		response->statusCode = "400 Bad Request";
+		response->responseData = "Content-Length mismatch: The actual body length does not match the specified Content-Length.";
+		response->contentLength = "Content-Length: " + to_string(response->responseData.length());
+
+		fclose(file);
+		return;
+	}
+
+	size_t bytesWritten = fwrite(body.c_str(), sizeof(char), body.size(), file);
+	if (bytesWritten == body.size()) 
+	{
+		response->responseData = method + " Request went successfully, added the required data to " + fileName;
+	}
+	else
+	{
+		response->statusCode = "500 Internal Server Error";
+		response->responseData = "Failed to write data to file.";
+	}
+
+	response->contentType = "Content-Type: text/plain";
+	response->contentLength = "Content-Length: " + to_string(response->responseData.length());
+
+	fclose(file);
 }
 
-void GetQueryString(string request, string& queryString)
+void RelaseList(list<responseMessage*>& Responses)
 {
-	size_t queryStart = request.find("?");
-	if (queryStart != string::npos)
+	for (auto response : Responses)
 	{
-		queryString = request.substr(queryStart + 1);
+		delete response;
 	}
-}
-
-bool GetVersion(string request, string& version)
-{
-	size_t versionStart = request.find("HTTP/");
-	if (versionStart != string::npos)
-	{
-		version = request.substr(versionStart); // ???? ?? ?-version (???? HTTP/1.1)
-		return true;
-	}
-	return false; // ?? ?? ?????? ????? ?? ?????
-}
-
-bool GetBody(string request, string& body)
-{
-	size_t bodyStart = request.find("\r\n\r\n");
-	if (bodyStart != string::npos)
-	{
-		body = request.substr(bodyStart + 4); // body ????? ???? "\r\n\r\n"
-		return true;
-	}
-	return false; // ?? ?? ?????? ????? ?? ?-body
+	Responses.clear();
 }

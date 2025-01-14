@@ -1,4 +1,9 @@
 ﻿  ServerProgram.cpp
-C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(39,6): warning C4326: return type of 'main' should be 'int' instead of 'void'
-C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(189,36): error C4996: 'inet_ntoa': Use inet_ntop() or InetNtop() instead or define _WINSOCK_DEPRECATED_NO_WARNINGS to disable deprecated API warnings
-C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(289,3): error C4996: 'itoa': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _itoa. See online help for details.
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(82,6): warning C4326: return type of 'main' should be 'int' instead of 'void'
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(227,38): warning C4244: '=': conversion from 'time_t' to 'clock_t', possible loss of data
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(268,40): warning C4244: '=': conversion from 'time_t' to 'clock_t', possible loss of data
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(301,48): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(317,16): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(537,22): warning C4858: discarding return value: This member function returns a bool indicating whether the collection is empty and has no other effects. It is not useful to call this member function and discard the return value. Use the 'clear()' member function if you want to erase all elements.
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(680,31): warning C4101: 'e': unreferenced local variable
+  TCPserver.vcxproj -> C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\x64\Debug\TCPserver.exe

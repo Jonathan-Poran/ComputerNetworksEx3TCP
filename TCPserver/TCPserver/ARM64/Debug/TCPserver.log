@@ -1,4 +1,6 @@
 ﻿  ServerProgram.cpp
-C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(39,6): warning C4326: return type of 'main' should be 'int' instead of 'void'
-C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(189,36): error C4996: 'inet_ntoa': Use inet_ntop() or InetNtop() instead or define _WINSOCK_DEPRECATED_NO_WARNINGS to disable deprecated API warnings
-C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(289,3): error C4996: 'itoa': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _itoa. See online help for details.
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(90,6): warning C4326: return type of 'main' should be 'int' instead of 'void'
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(311,53): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(327,16): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\TCPserver\ServerProgram.cpp(685,31): warning C4101: 'e': unreferenced local variable
+  TCPserver.vcxproj -> C:\Users\jonathanporan\Documents\MTA\Computer Networks\T3\TCP\TCPserver\ARM64\Debug\TCPserver.exe
