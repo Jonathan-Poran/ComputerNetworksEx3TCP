@@ -24,7 +24,7 @@ struct responseMessage
 	string httpVersion = "HTTP/1.1";
 	string statusCode = "200 OK";
 	string date = "";
-	string serverName = "Server: TCPNonBlockingServer/1.0";
+	string serverName = "Server: JonathanTCPNonBlockingServer";
 	string responseData = "";
 	string contentLength = "";
 	string contentType = "Content-Type: text/html";
@@ -36,7 +36,6 @@ struct SocketState
 	SOCKET id;			// Socket handle
 	int	recv;			// Receiving?
 	int	send;			// Sending?
-	string sendSubType;	// Sending sub-type
 	char buffer[BUFFER_SIZE];
 	int len;
 	clock_t lastByteRecvTime;
@@ -93,7 +92,7 @@ void main()
 	SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (INVALID_SOCKET == listenSocket)
 	{
-		cout << "\nTime Server: Error at socket(): " << WSAGetLastError() << endl;
+		cout << "Time Server: Error at socket(): " << WSAGetLastError() << endl;
 		WSACleanup();
 		return;
 	}
@@ -105,7 +104,7 @@ void main()
 	// Bind the socket for client's requests.
 	if (SOCKET_ERROR == bind(listenSocket, (SOCKADDR*)&serverService, sizeof(serverService)))
 	{
-		cout << "\nTime Server: Error at bind(): " << WSAGetLastError() << endl;
+		cout << "Time Server: Error at bind(): " << WSAGetLastError() << endl;
 		closesocket(listenSocket);
 		WSACleanup();
 		return;
@@ -114,7 +113,7 @@ void main()
 	// Listen on the Socket for incoming connections.
 	if (SOCKET_ERROR == listen(listenSocket, 5))
 	{
-		cout << "\nTime Server: Error at listen(): " << WSAGetLastError() << endl;
+		cout << "Time Server: Error at listen(): " << WSAGetLastError() << endl;
 		closesocket(listenSocket);
 		WSACleanup();
 		return;
@@ -187,7 +186,7 @@ void main()
 			}
 		}
 
-		for (int i = 0; i < MAX_SOCKETS && nfd > 0; i++)
+		for (int i = 1; i < MAX_SOCKETS && nfd > 0; i++)
 		{
 			if (FD_ISSET(sockets[i].id, &waitSend))
 			{
@@ -416,31 +415,26 @@ void HandleRequest(int index, const string& request, const string& timeStr)
 	if (method == "OPTIONS")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = method;
 		OptionsRequest(index, timeStr, response);
 	}
 	else if (method == "GET" || method == "HEAD")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = method;
 		GetOrHeadRequest(index, request, timeStr, response);
 	}
 	else if (method == "POST" || method == "PUT")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = method;
 		PostOrPutRequest(index, request, timeStr, response);
 	}
 	else if (method == "DELETE")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = method;
 		DeleteRequest(index, request, timeStr, response);
 	}
 	else if (method == "TRACE")
 	{
 		sockets[index].send = SEND;
-		sockets[index].sendSubType = method;
 		TraceRequest(index, request, timeStr, response);
 	}
 	else if (method == "Exit")
